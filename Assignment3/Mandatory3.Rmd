@@ -1,0 +1,708 @@
+---
+title: "Mandatory assignment 3"
+author: "Eirik Sakariassen"
+output:
+  html_document:
+    number_sections: no
+    toc: yes
+    toc_depth: 3
+    toc_float:
+      collapsed: no
+      smooth_scroll: no
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE) # all code chunks default to echo=TRUE
+library(knitr) # For tables
+library(rmutil)
+library(boot)
+```
+
+```{r, echo=TRUE}
+rm(list=ls()) # deletes all stored variables
+```
+
+# Problem 1
+
+### a)
+Given a dataset with unknown distribution, the distribution of sample means, calculated from repeated sampling, will approximate the normal distribution as the samples get larger. Generally OK when sample size n >= 30. The CLT says that:
+$$Z=\frac{\bar{X}-E(\bar{X})}{\sqrt{Var(\bar{X})}}= \frac{\bar{X}-\mu}{\sqrt{\sigma^{2}/n}} \approx N(0,1)$$
+Based on this, a CLT based simulation algorithm for the standard normal distribution can be:
+
+1. Select any distribution  
+2. Sample n>=30 independent r.v.s. from the given distribution
+3. Set $Z=\frac{\bar{X}-\mu}{\sqrt{\sigma^{2}/n}}$, where $\bar{X}$ and n is based on step 2, and $\mu$ and $\sigma$ comes from the original distribution in step 1
+4. Repeat step 2-3 a large number of times. The simulated Z values will approximate a standard normal distribution
+
+From the Berry Essen theorem, we have that $$E(X_{i})=0, \quad E(X_{i}^{2})=\sigma^{2}>0, \quad E(|X_{i}|^{3})=p^{<\infty}$$
+where $X_{1},..,X_{n}$ are i.i.d r.v.s. A random variable X which we may apply this theorem can be X$\sim$Unif[-1,1]. Then we have:
+$$E(X)=\frac{1}{2}(a+b) = \frac{-1+1}{2}=0, OK$$
+$$Var(X)=\frac{1}{12}(b-a)^2 = \frac{1^{2}-2(-1)(1)+(-1)^{2}}{12}=\frac{1}{3}$$
+Then we can check $$E(X^{2}) = \frac{1}{3}(a^{2}+ab+b^{2}) = \frac{(-1)^{2}+(-1)(1) + 1^{2}}{3}= \frac{1}{3}=Var(X), OK$$
+$$E(|X|^{3})= \int_{-\infty}^{0}x^{3}f(x)dx+\int_{0}^{\infty}x^{3}f(x)dx$$
+$$\iff -\int_{-1}^{0}x^{3}\frac{1}{b-a}dx +\int_{0}^{1}x^{3}\frac{1}{b-a}dx = 0.25 $$
+Let $Y_{n}=\frac{x_{1}+..+x_{n}}{\sqrt{n}\sigma}$ and let $F_{n}$ be its cdf: $F_{n}(x)=P(Y_{n}<=x)$. Then, $$|F_{n}(x)-\phi(x)| <= \frac{0.5p}{\sigma^{3}\sqrt{n}}$$
+where $\phi$ is the cdf of N(0,1). The smallest value of n for which the bound in BE is <= 0.02 is:
+$$0.02 >= \frac{0.5p}{\sigma^{3}\sqrt{n}}$$
+$$\implies n>= \big (\frac{0.5p}{\sigma^{3}0.02} \big )^{2} = \big (\frac{0.5 \cdot 0.25}{\sqrt{\frac{1}{3}}^{3}0.02} \big )^{2} \approx 1055 $$
+
+
+### $b)^R$
+
+```{r, echo=TRUE}
+#ALGORITHM 1
+alg1 <- function(N){
+  resVec <- rep(0,N)
+  for (i in 2:N){
+    s <- resVec[i-1]
+    t <- runif(1, s-1, s+1)
+    alfa <- exp(-(t^2 - s^2)/2)
+    u <- runif(1)
+    if(u <= alfa){
+      resVec[i] <- t
+    }else{
+      resVec[i] <- s
+    }
+  }
+  return(resVec)
+}
+
+alg1_time <- system.time(alg1_res <- alg1(1000))
+hist(alg1_res , col ="lightblue", main="Algorithm 1", xlab = "x")
+
+
+#Central Limit Theorem
+clt <- function(n=1055, N=1000){
+  mu <- 0
+  Fnvar <- 1/3
+  clt<-c()
+  for (i in 1:N) {
+    sample_mean <- mean(runif(n,min=-1,max=1))
+    clt[i] <- (sample_mean - mu)/(sqrt(Fnvar)/sqrt(n))
+  }
+  return(clt)
+}
+
+CLT_time <- system.time(clt_res <- clt())
+hist(clt_res, col ="grey", main="Central Limit Theorem", xlab = "x")
+
+
+#From rnorm
+rnorm_time <- system.time(rnorm_res <- rnorm(1000))
+hist(rnorm_res, col ="pink", main="rnorm function", xlab = "x")
+
+
+
+
+#################################################################################
+# Present the main results in a table
+runtimes=data.frame("MCMC"=alg1_time["elapsed"],"CLT"=CLT_time["elapsed"],"rnorm"=rnorm_time["elapsed"])
+kable(runtimes,  caption= "Execution times")
+```
+
+### $c)^R$
+
+```{r, echo=TRUE}
+ecdfSim <- function(dataset){
+  sortedSet <- sort(dataset)
+  ecdfVec <- c()
+  for (i in 1:length(sortedSet)){
+    ecdfVec[i] <- sum(dataset<=sortedSet[i])/length(dataset)
+  }
+  return(list("x" = sortedSet, "y" = ecdfVec) )
+}
+
+#Result from all functions
+rnormRes <- rnorm(1000)
+cltRes <- clt(1000)
+alg1Res <- alg1(1000)
+
+#ecdf of the functions
+rnorm_ecdf <- ecdfSim((rnormRes))
+clt_ecdf <- ecdfSim((cltRes))
+alg1_ecdf <- ecdfSim((alg1Res))
+real_cdf <- seq(-4,4,length=1000)
+
+# Create a plot
+plot(rnorm_ecdf$x,rnorm_ecdf$y,type="l",col="red", xlab="x", ylab="probability")
+lines(clt_ecdf$x,clt_ecdf$y,col="green")
+lines(alg1_ecdf$x,alg1_ecdf$y,col="blue")
+lines(real_cdf,pnorm(real_cdf,0,1))
+
+legend(-3, 1, legend=c("rnorm", "CLT", "Algorithm 1", "Real CDF"),
+       col=c("red", "green", "blue", "black"), lty=1, cex=0.8)
+
+
+
+kolmogorovSmirnovTest <- function(dataset1, dataset2){
+  t <- max(abs(dataset1-dataset2))
+  return(t)
+}
+
+permutationTest <- function(P,dataset1,dataset2){
+  t <- kolmogorovSmirnovTest(dataset1,dataset2) #The max difference between them originally
+  Z <- c(dataset1,dataset2) #Pooled data
+  size <- length(Z)
+  resVec <- c()
+  for(i in 1:P){ #Permutate them P times
+    permData <- sample(Z,size=size,replace=FALSE) #Permutation of Z
+    x <- permData[1:(size/2)] #First half
+    y <- permData[((size/2)+1):size] #Second half
+    resVec[i] <- kolmogorovSmirnovTest(x,y) 
+  }
+  #number of times the recorded differences were more extreme than the original difference
+  pvalue <- (length(resVec[resVec>t]))/P
+  return(list("pvalue" = pvalue, "t" = t) )
+}
+
+test_rnorm_alg1 <- permutationTest(500,rnorm_ecdf$y,alg1_ecdf$y) #Between rnorm and alg1
+test_clt_alg1 <- permutationTest(500,clt_ecdf$y,alg1_ecdf$y) #Between clt and alg1
+test_clt_rnorm <- permutationTest(500,clt_ecdf$y,rnorm_ecdf$y) #Between clt and rnorm
+alfa <- 0.05
+#Check if pval > alfa (then null hypo is true and they are the same dist)
+test_rnorm_alg1
+test_clt_alg1
+test_clt_rnorm
+##The inbuild ks.test function will produce the exact same results
+#ks.test(rnorm_ecdf$y,alg1_ecdf$y,b=500)
+#ks.test(clt_ecdf$y,alg1_ecdf$y,b=500)
+#ks.test(clt_ecdf$y,rnorm_ecdf$y,b=500)
+
+cat(ifelse(test_rnorm_alg1$pvalue <= alfa,"We reject the null hypothesis for rnorm and alg1","We keep the null hypothesis for rnorm and alg1"))
+
+cat(ifelse(test_clt_alg1$pvalue <= alfa,"We reject the null hypothesis for clt and alg1","We keep the null hypothesis for clt and alg1"))
+
+cat(ifelse(test_clt_rnorm$pvalue <= alfa,"We reject the null hypothesis for clt and rnorm","We keep the null hypothesis for clt and rnorm"))
+
+```
+
+<!-- Spacing between problems -->
+<br/><br/><br/><br/><br/><br/><br/><br/>  
+<!-- Spacing between problems -->
+
+# Problem 2
+
+### a)
+Simulation algorithm:
+
+1. Start at $W_{0}$=(x,y,z)$\in$D ($D\subset \mathbb{R}^{3}$)
+2. Specify a time coordinate $t\in[0,\infty)$
+3. Sample a standard Brownian motion $(W_{t})_{t>=0}$ by sampling the next step from a standard normal distribution; $\triangle x, \triangle y, \triangle z \sim N(0,1)$, then $W_{t}=W_{t-1}+(\triangle x, \triangle y, \triangle z)$
+4. Repeat step 3 until $W_{t} \notin D$ or $t=T$ (iteration T equals limit of t in 2.)
+5. If $T\in [t,\infty)$, do f($W_{t}$), else do g($W_{t}$)
+6. Run 1-5 a large number of times and take the mean of the results
+
+
+### $b)^R$
+```{r, echo=TRUE}
+simFeynmanKac <- function(Nsim,t,x,y,z){
+  resVec <- c()
+  for(i in 1:Nsim){
+    coord <- c(x,y,z) #Start coordinates
+    T <- 0
+    while(TRUE){ #until it exits D or passes t
+      coord <- coord + rnorm(3)
+      T <- T + 1
+      if(T == t || ((sqrt(sum(coord^2)) >= 5))){
+        break
+      }
+    }
+    if(sqrt(sum(coord^2)) <= 5){#F
+      resVec[i] <- coord[1]^2 + coord[2]^2
+    }else{ #G
+      check <- coord[1]^2 + coord[2]^2 #x^2 + y^2
+      resVec[i] <- min(check,5)
+    }
+  }
+  return(mean(resVec))
+}
+
+solution =data.frame("t=1"=simFeynmanKac(10000,1,0,0,0),
+                    "t=5"=simFeynmanKac(10000,5,0,0,0),
+                    "t=10"=simFeynmanKac(10000,10,0,0,0),
+                    "t=100"=simFeynmanKac(10000,100,0,0,0),
+                    "t=10000"=simFeynmanKac(10000,10000,0,0,0))
+kable(solution, caption= "Heat equation solutions")
+```
+
+
+<!-- Spacing between problems -->
+<br/><br/><br/><br/><br/><br/><br/><br/>  
+<!-- Spacing between problems -->
+# Problem 3
+
+### a)
+f(x) is the pdf of of the contineous r.v. X if:
+
+1. f(x)>= 0 for all $X\in R$
+2. $\int_{-\infty}^{\infty}f(x)dx=1$
+3. P(a<X<b) = $\int_{a}^{b}f(x)dx$
+
+We have that $$f(x)=\frac{1}{2b}e^{-\frac{|x-\mu|}{b}}, x\in(-\infty,\infty), $$
+where $\mu \in(-\infty,\infty)$ and b>0.
+Proof:
+
+1. We have that b>0 $\frac{1}{2b}$>0. Also $e^{-\frac{|x-\mu|}{b}}$>=0, hence f(x)>=0
+2. $$\int_{-\infty}^{\infty}\frac{1}{2b}e^{-\frac{|x-\mu|}{b}}dx \quad set \quad  u=x-\mu$$
+ $$\implies \int_{-\infty}^{\infty}\frac{1}{2b}e^{-\frac{|u|}{b}}du$$ which is symmetric around 0,
+  $$\implies 2\int_{0}^{\infty}\frac{1}{2b}e^{-\frac{|u|}{b}}du = \frac{1}{b}\int_{0}^{\infty}e^{-\frac{|u|}{b}}du $$
+  $$\implies \frac{1}{b}[-be^{-\frac{|u|}{b}}]_{0}^{\infty} = -e^{-\frac{|u|}{b}}|_{0}^{\infty} $$
+  $$\implies 0- (-1) = 1$$
+  3. $$P(-\infty < X < \infty) = \int_{-\infty}^{\infty}f(x)dx = \int_{-\infty}^{\infty}\frac{1}{2b}e^{-\frac{|x-\mu|}{b}}dx = 1$$
+  
+  
+The inverse transfer method may be used to simulate data from a contineous distribution with pdf f(x). This is quite easy if the cdf F(x) is easy to invert. The theorem states that:
+
+If X is a contineous r.v. with cdf F(x) then $U=F(X) \sim Unif[0,1]$$
+The simulation algorithm is as follows:
+
+1. Generate U \sim Unif[0,1]
+2. Let x = $F^{-1}(U)$
+
+So our first step is to find the cdf F(x), then invert it.
+
+$$F(x) = \int_{-\infty}^{x}f(y)dy =\int_{-\infty}^{x}\frac{1}{2b}e^{-\frac{|y-\mu|}{b}} dy $$
+$$\implies F(x) = \begin{cases} 
+      \frac{1}{2}e^{(\frac{x-\mu}{b})} \quad if \quad x<\mu\\
+      1 - \frac{1}{2}e^{-(\frac{x.\mu}{b})} \quad otherwise
+   \end{cases}$$
+   We have two cases for x. First look at the case where $x<\mu$:
+   $$U=\frac{1}{2}e^{(\frac{x-\mu}{b})}$$
+   $$\iff 2U=e^{(\frac{x-\mu}{b})}$$
+    $$\iff ln(2U)=\frac{x-\mu}{b}$$
+    $$\implies x=\mu + b ln(2U)$$
+    Then, for $x>=\mu$ we have:
+    $$U=1-\frac{1}{2}e^{-(\frac{x-\mu}{b})}$$
+    $$\iff  2(1-U)=e^{-(\frac{x-\mu}{b})}$$
+     $$\iff  ln(2(1-U))=-\frac{x-\mu}{b}$$
+       $$\implies x = \mu - bln(2-2U)$$
+       We may then combine the two values for x into:
+       $$x=\mu - sgn(x-\mu)bln(1+sgn(x-\mu)-sgn(x-\mu)2U)$$
+       Use the fact that $sgn(x-\mu)=sgn(U-\frac{1}{2})$ to simplify it. We end up with the inverse function:
+       $$F(U)^{-1}=\mu - bsgn(U-0.5)ln(1-2|U-0.5|)$$
+       which is the function we use for step 2 in the algorithm described above.
+  
+  
+  
+### b)
+
+1. Set $X_{0}=0$
+2. Sample a uniform distributed number from [s-1,s+1] where s=$X_{i-1}$
+3. Compute the acceptance function $\alpha(s,t)=\frac{\pi_{t}}{\pi_{s}} = e^{\frac{|s-\mu|-|t-\mu|}{b}}$
+4. Sample u$\sim$Unif[0,1]
+5. If $u<=\alpha(s,t)$, set $X_{i}=t$, else set $X_{i}=s$
+6. Repeat 2-5 a large number of times
+
+```{r, echo=TRUE}
+mhAlgo <- function(N,mu,b){
+  resVec <- rep(0,N)
+  for (i in 2:N){
+    s <- resVec[i-1]
+    t <- runif(1, s-1, s+1)
+    alfa <- exp( (abs(s-mu)-abs(t-mu))/b ) #Acceptance function
+    u <- runif(1)
+    if(u <= alfa){
+      resVec[i] <- t
+    }else{
+      resVec[i] <- s
+    }
+  }
+  return(resVec)
+}
+
+
+mhLaplace <- mhAlgo(10000,4,2)
+plot(density(mhLaplace),col ="red", main="3B", xlab = "x", lwd=2)
+
+```
+
+
+As stated in 1a), if the pdf f(x) is easily integrated, then inverse transfer method is quite easy to implement and produces great results. The contineous output from the simulated data of a contineous distribution by inverse transfer is to be preffered over the MCMC method, which samples randomly from the pdf. Also, we have to increase the number of simulations in order to increase precision by MCMC methods, which may be a slow increase and computational expensive if its done wrong.
+
+### c)
+
+```{r, echo=TRUE}
+invTransf <- function(Nsim,mu,b){
+  U <- runif(Nsim)
+  resVec <- vector(length=Nsim)
+  for(i in 1:Nsim){
+    resVec[i] <- mu-b*sign(U[i]-0.5)*log(1-2*abs(U[i]-0.5))
+    
+  }
+  return(resVec)
+}
+
+laplace <- invTransf(1000,4,2)
+#hist(laplace)
+plot(density(laplace),col ="blue", main="Inverse transfer laplace", xlab = "x",lwd=2)
+
+##Estimate its fourth moment E(X^4) by basic Monte Carlo integration 
+mcFourthMoment <- function(a,b,laplace,moment,Nsim=1000){
+  laplace <- approxfun(density(laplace))
+  x <- runif(Nsim,a,b)
+  intres <- (b-a)*mean((x^moment)*laplace(x))
+  return(intres)
+}
+
+
+##Estimate its fourth moment E(X^4) by antithetic varables
+antitheticFourthMoment <- function(a,b,laplace,moment,Nsim=1000){
+  laplace <- approxfun(density(laplace))
+  U <- runif(Nsim/2,a,b)
+  V <- ((a+b)-U)
+  intres <- ((b-a)/(Nsim))*( sum((U^moment)*laplace(U)) +sum((V^moment)*laplace(V))   )
+  return(intres)
+}
+
+#repeat 1000 times and calculate the mean and sd
+cmcVec <- vector(length=1000)
+antVec <- vector(length=1000)
+for(i in 1:1000){
+  laplace <- invTransf(1000,4,2)
+  a <- min(laplace)
+  b <- max(laplace)
+  cmcVec[i] <- mcFourthMoment(a,b,laplace,4)
+  antVec[i] <- antitheticFourthMoment(a,b,laplace,4)
+}
+
+#Exact value
+laplaceFunction <- function(x,moment=4,b=2,mu=4){
+  (x^moment)*(1/(2*b))*exp(-abs(x-mu)/(b))
+}
+
+a <- min(laplace)
+b <- max(laplace)
+
+
+means= data.frame("Monte Carlo"=mean(cmcVec),"Antithetic"=mean(antVec),"Integrate"=integrate(laplaceFunction,-Inf,Inf)[[1]])
+stdDevs= data.frame("Monte Carlo"=sd(cmcVec), "Antithetic"=sd(antVec))
+kable(means, caption= "E[X^4]")
+kable(stdDevs, caption= "SD[X^4]")
+
+```
+
+
+### d)
+(From the lecture notes chap6_part2)
+
+Consider integrals which can be interpreted as expectations, i.e. $$\theta=E(g(X))$$
+If there exist a function h such that $\mu=E(h(X))$ is known and h(x) is correlated with g(x). Then for
+$$\hat{\theta_{c}}=g(X)+c(h(X)-\mu)$$
+we have for any c
+$$E(\hat{\theta_{c}})=E(g(X))+c(E(h(X))-\mu)=\theta$$
+where h(X) is the control variable. Then for
+$$E(Xe^{sin(X)/(1+|X|})$$
+we set $g(x)=Xe^{sin(X)/(1+|X|} \implies E(g(x))=\theta$. From the description we have $\mu=E(h(x))=E(X)$ and hence for any c we know that
+$E(\hat{\theta_{c}}) = E(Xe^{sin(X)/(1+|X|}) = \theta$. The final estimate of the integral is $$\hat{\theta_{c}}=\overline{g(X)}+c^{*}(\overline{h(X)}-\mu)$$
+where
+$$c^{*}=-\frac{Cov(g(X),h(X))}{Var(h(X))}$$
+We use the control variable h(X) together with knowledge from the description:
+$$Var(h(X))=Var(X)=2b^{2}$$
+
+### e)
+
+
+
+$$1. L(b) = f(x_{1},...x_{N};b)=\prod_{i=1}^{N}f(x_{i};b)=\prod_{i=1}^{N}(\frac{1}{2b})e^{\frac{|x_{i}-\mu|}{b}}$$
+
+$$\implies \prod_{i=1}^{N}(\frac{1}{2b})^{N}e^{-\frac{1}{b}\sum_{i=1}^{N}|x_{i}-\mu|}$$
+$$2. lnL(b) = ln(1)-ln((2b)^{n}) + ln(e^{-\frac{1}{b}\sum_{i=1}^{N}|x_{i}-\mu|})$$
+$$\implies -Nln(2b) -\frac{1}{b}\sum_{i=1}^{N}|x_{i}-\mu|$$
+$$3. \frac{\partial l(b)}{\partial b} = 0$$
+$$\implies -\frac{N}{b} +\frac{1}{b^{2}}\sum_{i=1}^{N}|x_{i}-\mu| = 0$$
+$$\iff N = \frac{1}{b}\sum_{i=1}^{N}|x_{i}-\mu|$$
+$$\implies \hat{b} = \frac{1}{N}\sum_{i=1}^{N}|x_{i}-\mu|$$
+$$4. \frac{\partial^{2}l(b)}{\partial b^{2}}= -\frac{1}{b^{2}}\sum_{i=1}^{N}|x_{i}-\mu| <0, \quad i.e. maximum$$
+Two additional estimators based on the description:
+$$E(X) = \frac{1}{n}\sum_{i=1}^{n}X_{i} = \mu = \hat{\mu}$$
+$$Var(X) = 2b^{2}$$
+$$ \implies \frac{1}{n-1}\sum_{i=1}^{n}(X_{i}-\bar{X})^{2} = 2b^{2}$$
+$$ \implies \hat{b} = \sqrt{\frac{1}{2(n-1)}\sum_{i=1}^{n}(X_{i}-\bar{X})^{2}}$$
+We can use the bootstrap procedure to estimate the bias and standard deviation for all our estimators. Based on a known F with sample size n (defined by us), ($F_{n}$) and an estimator $\hat{\theta}$, we can look at the distribution of $\hat{\theta}$ about $\theta$. This is accomplished by taking a large number B (e.g 2000), of samples from $F_{n}$, then for each sample we calculate the estimator $\hat{\theta_{i}}$ where i = i,..,B. From this estimate, compute sd and bias. A simulation algorithm for this is is shown in f).
+
+### $f)^R$
+```{r, echo=TRUE}
+
+MLEb <- function(x,mu){
+  mean(abs(x-mu))
+}
+
+VARb <- function(x){
+  n <- length(x)
+  sqrt(((1)/(2*(n-1)))*(sum((x-mean(x))^2)) )
+}
+
+#Compute bias, standard deviation and mean square error using the bootstrap method
+bootstrapResampling <- function(B,dataset,sampleSize){
+  mleb <- vector(length=B) #Estimator of b based on the MLE
+  varb<-  vector(length=B) #Estimator of b based on var(X) = 2b^2
+  meanmu <- vector(length=B) #Estimator of mu based on E(X) = mu
+  medianmu <- vector(length=B) #Estimator of mu based on mu=sample median
+  for(i in 1:B){
+    mleb[i] <- MLEb(sample(dataset,sampleSize,replace=TRUE),4)
+    varb[i] <- VARb(sample(dataset,sampleSize,replace=TRUE))
+    meanmu[i] <- mean(sample(dataset,sampleSize,replace=TRUE))
+    medianmu[i] <- median(sample(dataset,sampleSize,replace=TRUE))
+  }
+  return(list("mleb" = mleb, "varb" = varb, "meanmu" = meanmu, "medianmu" = medianmu) )
+}
+laplaceVec <- rlaplace(1000,4,2)
+laplaceBootstrap <- bootstrapResampling(2000,laplaceVec,500)
+
+##Store bias, standard error and MSE for all the estimators
+bias <- round(c(mean(laplaceBootstrap$mleb)-2, 
+                mean(laplaceBootstrap$varb)-2,
+                mean(laplaceBootstrap$meanmu)-mean(laplaceVec),
+                mean(laplaceBootstrap$medianmu)-mean(laplaceVec)),4)
+
+sd <- round(c(sd(laplaceBootstrap$mleb), sd(laplaceBootstrap$varb),
+              sd(laplaceBootstrap$meanmu), sd(laplaceBootstrap$medianmu)),4)
+
+MSE <- round(c(mean((laplaceBootstrap$mleb-2)^2), #MSE = E[(thetahat-theta)^2] Hva er theta?
+               mean((laplaceBootstrap$varb-2)^2),
+               mean((laplaceBootstrap$meanmu-4)^2),
+               mean((laplaceBootstrap$medianmu-4)^2)),4)
+
+
+restab=cbind(c("b MLE", "b alt.","mu alt.","mu MLE"),bias,sd,MSE)  
+kable(restab, caption= "Estimators")
+
+```
+
+
+
+### $g)^R$
+```{r, echo=TRUE}
+DailyReturn = c(0.010842076,0.013009824,0.000910618,-9.40004*10^(-5),0.000322317,0.007229668,0.002879107,-0.000724356,-0.003135609,0.002581756,0.000342682,1.99552*10^(-5),-0.004895586,-9.69229*10^(-5),-0.008416394,0.006158565,-0.002428917,-0.005316326,0.005047623,-0.012258377,-0.01790324,0.007971991,0.014216853,-0.004478305,-0.015560826,0.009104547,0.006415702,0.010938931,-0.001387079,0.009955666,-0.001999546,0.002762828,-0.003919345,0.006871609,-0.003568673,0.002847139,0.00192044,0.004072697,0.00558138,-0.000832396,0.003253328,-0.003022873)
+##
+
+
+#Compute  point  estimates  of μ and b using  the  MLE  estimators from E
+b <- MLEb(DailyReturn,mean(DailyReturn))
+mu <- median(DailyReturn)
+pdflaplace <- rlaplace(1000,mu,b)
+
+#Compute point estimates of μ and σ by calculating the sample mean and the sample standard deviation
+samplemu <- mean(DailyReturn)
+samplesd <- sd(DailyReturn)
+pdfnormal <- rnorm(1000,samplemu,samplesd)
+
+#Histogram plots
+xrange <- c(min(density(pdfnormal)$x),max(density(pdfnormal)$x))
+yrange <- c(0,max( (density(pdflaplace)$y)*1.3) )
+
+hist(DailyReturn, prob=TRUE, col="grey", main="DailyReturn", xlab="X", ylim=yrange, xlim=xrange)     
+lines(density(pdflaplace), col="blue", lwd=2)
+lines(density(pdfnormal), col="red", lwd=2)
+legend(xrange[1],yrange[2], legend=c("Laplace", "Normal"),
+       col=c("blue", "red"), lty=1, cex=.7)
+
+# Comment on which of the two methods seem to estimate the dataset best
+cat("Based on the plots. the best method is the normal distribution ")
+```
+
+### $h)^R$
+```{r, echo=TRUE}
+
+bootstrapDailyReturn <- function(B,dataset,sampleSize){
+  MLEestimator <- vector(length=B)
+  for(i in 1:B){
+    MLEestimator[i] <- median(sample(dataset,sampleSize,replace=TRUE))
+  }
+  return(MLEestimator)
+}
+
+bootstrapDR <- bootstrapDailyReturn(2500,DailyReturn,50) 
+bias <- mean(bootstrapDR)-median(DailyReturn)
+correctedEstimate <- median(DailyReturn)-bias
+sd <- sd(bootstrapDR)
+#Basic confidence interval
+basicLowerB <- 2*mean(DailyReturn)-quantile(bootstrapDR,0.975)
+basicUpperB <- 2*mean(DailyReturn)-quantile(bootstrapDR,0.025)
+
+#Use boot.ci for BCa confidence interval
+BCa <- function(dataset,i) 
+  median(dataset[i])
+
+boot.obj <- boot(data=DailyReturn, statistic = BCa,R=2500)
+bcaint <- boot.ci(boot.obj,type=c("basic","bca"))
+
+biasres <- c(bias,correctedEstimate, sd)
+bcares <- c(bcaint$bca[4],bcaint$bca[5])
+basicres <- c(basicLowerB[[1]],basicUpperB[[1]],bcaint$basic[4],bcaint$basic[5])
+
+kable(data.frame("bias"=bias,"Bias corrected estimate"=correctedEstimate,
+           "sd"=sd),caption="Bootsrap")
+
+kable(data.frame("Basic lower"=basicres[1],"Basic upper"=basicres[2],"boot.ci lower"=basicres[3], "boot.ci upper"=basicres[4]) ,caption="Basic confidence intervals")
+
+kable(data.frame("BCa lower"=bcares[1],"BCa upper"=bcares[2]) ,caption="BCa confidence interval")
+```
+
+
+
+<!-- Spacing between problems -->
+<br/><br/><br/><br/><br/><br/><br/><br/>  
+<!-- Spacing between problems -->
+
+# Problem 4
+
+### $a)^R$
+```{r, echo=TRUE}
+hospitalTimes <- function(numAcc,expected){
+  totalTimes <- vector(length=numAcc)
+  peopleInAcc <- sample(c(1:4), size = numAcc, prob=c(0.4,0.3,0.2,0.1), replace = TRUE)
+  for(i in 1:numAcc){ #duration for an accident
+    rate <- 1/(expected*(abs(runif(1,-1,1))+abs(runif(1,-1,1))))
+    totalTimes[i] <- sum(rexp(peopleInAcc[i],rate))
+  }
+  return(totalTimes)
+}
+
+simBusyAmbulance <- function(Nsim,rate1,rate2,days){
+  numAcc <- rpois(Nsim,rate1*days)
+  resVec <- rep(0,Nsim)
+  for(i in 1:Nsim){
+    if(numAcc[i] > 1){ #Simulate if it was an accident
+      startTimes <- sort(runif(numAcc[i],min=0,max=24*days))
+      durations <- hospitalTimes(numAcc[i],rate2)/60 
+      endTimes = startTimes+durations
+      resVec[i]= max((startTimes[2:numAcc[i]]-endTimes[1:(numAcc[i]-1)])<0)
+    }
+  }
+  return(resVec)
+}
+
+mean(simBusyAmbulance(Nsim=1000,rate1=4.8,rate2=15,days=1))
+
+mean(simBusyAmbulance(Nsim=1000,rate1=4.8,rate2=15,days=7))
+
+mean(simBusyAmbulance(Nsim=1000,rate1=4.8,rate2=15,days=31))
+```
+
+### b)
+
+Given a sequence of observations $X_{1},..,X_{n}$ we may test whether there is a trend, e.g. it becomes larger or smaller over time. The current model states that the accidents happen according to a HPP without a trend. The group of statisticians thinks that the accidents happen more frequently over time, and hence a permutation test of the sequence of subsequent arrival times can be applied. 
+
+This trend test is a test of the null hypothesis H0:
+
+* F=G $\implies$ Frequency between accidents happens according to a Poisson process, e.g. no trend.
+
+versus the alternative H1:
+
+* F $\ne G \implies$ $E(X_{i})$ increase or decrease with i, e.g. happens according to a NHHP (process with a trend).
+
+Let $S_{1}=X_{1}, S_{2}=X_{1}+X_{2},..,S_{n}=\sum_{i=1}^{n}X_{i}$.
+The averages of $S_{1},..,S_{n-1}$ should be close to $S_{n}/2$ if there is no trend, else it will deviate. The test statistic is defined as:
+$$T=\sum_{i=1}^{n-1}S_{i}/(n-1)-S_{n}/2$$
+Under H0, $X_{1},..,X_{n}$ are i.i.d. and can thus be re-arranged in any order. Under the permutation test, we will compare T to the distribution of $T^{*}$ , which we simulates by calculating test statistics for a large number of permutations of the observations. The permutation test can be performed like this:
+
+1. Define our test statistic T based on observed data $X_{1},..,X_{n}$ 
+2. Permutate the dataset P times, and calculate $T^{*}$ for each run
+3. Calculate the p-value: $\sum_{p=1}^{P}I(|T^{*(p)}|>T)/P$
+4. Reject H0 if p-value <= $\alpha$, where $\alpha$ is the significanse level.
+
+
+### $c)^R$
+```{r, echo=TRUE}
+AccidentTimes = c(2.0735454,8.4167032,1.1005269,2.0120367,14.9385790,0.8956173,0.9939630,6.6709724,2.5516346,1.0535310,3.0399767,1.0439586,6.9407880,4.6048051,2.2845416,0.1220334,9.1797608,1.3015252,2.7024692,1.4658722,1.4774836,2.1170539,1.6563365,3.8815059,1.4736501,2.1680797,2.7599514,0.8482105,2.1241656,3.3280075,5.5765849,3.9268892,5.1796726,2.5678380,5.9643887,1.4045580)
+##
+trendTest <- function(dataset,numObs){
+  mean(dataset[1:(numObs-1)])-dataset[numObs]/2
+}
+
+trendPermutationTest <- function(P,dataset,alfa){
+  resVec <- vector(length=P) #Store permutated test data
+  sValues <- cumsum(dataset) #S1,..Sn
+  orgTest <- mean(sValues[1:(length(dataset)-1)])-sValues[length(dataset)]/2 #Test for the original data
+  for(i in 1:P){
+    permData <- cumsum(sample(dataset,size=length(dataset),replace=FALSE)) #S1,..Sn for permutated data
+    resVec[i] <- trendTest(permData,length(dataset))
+  }
+  mean(abs(resVec)>=abs(orgTest)) #p-value
+}
+
+pval <- trendPermutationTest(5000,AccidentTimes,0.2)
+
+alpha <- 0.05
+cat(ifelse(pval <= alpha,"We reject the null hypothesis, there is a trend","We keep the null hypothesis, there is no trend"))
+```
+
+
+### $d)^R$
+```{r, echo=TRUE}
+
+lambdaFunction <- function(x){
+  0.2*(1 + 0.5*sin( (pi*x)/(24) ))
+}
+
+busyAmbulanceCheck <- function(arrivalTimes, endTimes, k){
+  if(length(arrivalTimes) <= k){
+    return(0)
+  }
+  finishTimes <- endTimes[1:k] #endtimes for all ambulances on a mission
+  for(i in (k+1):length(arrivalTimes)){
+    if(arrivalTimes[i] < min(finishTimes)){ #No available
+      return(1)
+    } 
+    #Append new mission to the ambulance that is finished first
+    finishTimes[which(finishTimes == min(finishTimes))] <- endTimes[i]
+  }
+  return(0)
+}
+
+
+simNHHPBusyAmbulance <- function(Nsim,rate1,rate2,days){
+  kScores <- list() #probability for each k
+  k <- 1
+  repeat{ #until probability lower than 0.1
+    resVec <- rep(0,Nsim[k]) #Store if ambulance busy during sim: 1 if busy, 0 else
+    for(i in 1:Nsim[k]){
+      #1. Simulate an HPP with intensity lamdamax, giving the simulated arrivaltimes s1,s2,s3..sn
+      lambdamax <- max(lambdaFunction(seq(0,24*days,0.1)))
+      expectednumber <- 24*days*lambdamax 
+      arrivalTimes <- cumsum(rexp(3*expectednumber,lambdamax))  
+      arrivalTimes <- arrivalTimes[arrivalTimes<(24*days)] 
+      #2. Simulate numAcc variables from the U[0,1] distribution
+      U <- runif(length(arrivalTimes) )
+      #3. Thinning: Only keep the times where u<lambda(s)/lambdamax
+      arrivalTimes <- arrivalTimes[U<lambdaFunction(arrivalTimes)/lambdamax]  
+      numAcc <- length(arrivalTimes) 
+      
+      if(numAcc > 1){ #Simulate if it was an accident
+        durations <- hospitalTimes(numAcc,rate2)/60 
+        endTimes = arrivalTimes+durations
+        resVec[i] <- busyAmbulanceCheck(arrivalTimes,endTimes,k)
+      }
+    }
+    kScores[[k]] <- resVec
+    if(mean(kScores[[k]]) < 0.1){
+      break
+    }
+    k <- k + 1
+  }
+
+  return(kScores)
+}
+
+simulationsNeeded <- function(sd){
+ round(( (1.96^2)*(sd^2) )/(0.01^2))
+}
+
+#Evaluate the base score with 1000 simulations
+baseSim <- simNHHPBusyAmbulance(Nsim=rep(1000,100),rate1=4.8,rate2=15,days=1)
+baseSD <- lapply(baseSim, function(x) sd(x))
+baseMean <- unlist(lapply(baseSim, function(x) mean(x)), use.names=FALSE)
+simNum <- unlist(lapply(baseSD, simulationsNeeded), use.names=FALSE) #Number of simulations needed for each k
+#Run with the produced simulation numbers
+finalSim <- simNHHPBusyAmbulance(Nsim=unlist(simNum, use.names=FALSE),rate1=4.8,rate2=15,days=1)
+finalMean <- unlist(lapply(finalSim, function(x) mean(x)), use.names=FALSE)
+
+
+res <- data.frame("k"=seq(length(finalMean)),"Nsim"=simNum,"Base_prediction"=baseMean, "Final_prediction"=finalMean)
+
+kable(res,  caption= "Probability of no available ambulance")
+```
